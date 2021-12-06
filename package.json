@@ -1,0 +1,11 @@
+{
+  "name": "logger",
+  "version": "0.0.1",
+  "description": "A simple logger. Creates log file",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "author": "Airsane"
+}
