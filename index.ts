@@ -1,41 +1,66 @@
 import * as fs from "fs";
-import * as path from "path";
+import {LogFileBuilder} from "./LogFileBuilder";
+import path from "path";
 
 export enum LogFileLevel {
-    INFO = 2,
-    DEBUG = 4,
-    WARN = 8,
-    ERROR = 16,
+    INFO = 1,
+    DEBUG = 2,
+    WARN = 4,
+    ERROR = 8,
 }
 
 export enum LogFileOpt {
     LOGFILE_OPT_NONE = 0,
     LOGFILE_OP_APPEND = 1,
     LOGFILE_OPT_NOCREATE = 2,
-    LOGFILE_OPT_TIMESTAMP = 4,
-    LOGFILE_OPT_MAXSIZEKB = 8,
-    LOGFILE_OPT_LEVEL = 16,
-    LOGFILE_OPT_ROTATE = 32
+    LOGFILE_OPT_MAXSIZEKB = 4,
+    LOGFILE_OPT_LEVEL = 8,
+    LOGFILE_OPT_ROTATE = 16
 }
 
 export default class Logger {
 
     private static singleton: Logger | null = null;
-    private filename: string;
+    private readonly filename: string;
     private level: number;
-    private readonly filePath: string
-    private maxSize: number;
+    private readonly consoleLog: number;
 
     constructor(filename: string = "latest.log") {
         this.filename = filename;
-        this.filePath = path.join(__dirname, "../log/" + filename);
-        this.level = LogFileLevel.INFO | LogFileLevel.WARN | LogFileLevel.ERROR;
-        Logger.generateFolder();
+        this.level = LogFileLevel.INFO | LogFileLevel.WARN | LogFileLevel.ERROR | LogFileLevel.DEBUG;
+        this.consoleLog = LogFileLevel.INFO | LogFileLevel.WARN | LogFileLevel.ERROR;
         this.generateLogFile();
+        this.deleteOlderLogFiles();
     }
 
     public getName(): string {
         return this.filename;
+    }
+
+    private deleteOlderLogFiles(): void {
+        const logFolderPath = path.join(process.cwd(), "./log/");
+
+        if (!fs.existsSync(logFolderPath)) {
+            fs.mkdirSync(logFolderPath);
+        }
+
+        const files = fs.readdirSync(logFolderPath);
+        const logFiles = files.filter(file => file.endsWith(".log"))
+        // filter files older than 10 days
+        const olderThan10Days = logFiles.filter(file => {
+            const fileDate = new Date(fs.statSync(path.join(logFolderPath, file)).mtime);
+            const now = new Date();
+            const diff = now.getTime() - fileDate.getTime();
+            return diff > 1000 * 60 * 60 * 24 * 10;
+        });
+
+        olderThan10Days.forEach(file => {
+            fs.unlinkSync(path.join(logFolderPath, file));
+        });
+    }
+
+    public static builder(): LogFileBuilder {
+        return new LogFileBuilder();
     }
 
     public setOption(optName: LogFileOpt, value: LogFileLevel | any) {
@@ -52,19 +77,9 @@ export default class Logger {
         return result;
     }
 
-    private static generateFolder(): void {
-        const dir = path.join(__dirname, "../log");
-        if (!fs.existsSync(dir))
-            fs.mkdirSync(dir);
-    }
-
     private generateLogFile(): void {
-        if (fs.existsSync(this.filePath)) {
-            const {birthtime} = fs.statSync(this.filePath)
-            fs.renameSync(this.filePath, path.join(__dirname, "../log/" + `${birthtime.getFullYear()}${("0" + (birthtime.getMonth() + 1)).slice(-2)}${("0" + (birthtime.getDate())).slice(-2)}_${("0" + birthtime.getHours()).slice(-2)}${("0" + birthtime.getMinutes()).slice(-2)}${("0" + birthtime.getSeconds()).slice(-2)}.log`));
-        }
         const date = new Date();
-        fs.writeFileSync(this.filePath, `${this.getDateString(date)} [${LogFileLevel[LogFileLevel.INFO]}] Logging started!`);
+        fs.writeFileSync(this.filename, `${this.getDateString(date)} [${LogFileLevel[LogFileLevel.INFO]}] Logging started!`);
     }
 
     public getDateString(date: Date): string {
@@ -72,31 +87,33 @@ export default class Logger {
 
     }
 
-    public writeData(logLevel: LogFileLevel, message: string) {
-        const date = new Date();
-        console.log(`${this.getDateString(date)} [${LogFileLevel[logLevel]}] ${message}`)
-        fs.appendFileSync(this.filePath, `\n${this.getDateString(date)} [${LogFileLevel[logLevel]}] ${message}`)
+    public writeData(logLevel: LogFileLevel, message: string, moduleName: string) {
+        if (this.level & logLevel) {
+            const date = new Date();
+            message = moduleName === "" ? message : `[${moduleName}] ${message}`;
+            if (this.consoleLog & logLevel)
+                console.log(`${this.getDateString(date)} [${LogFileLevel[logLevel]}] ${message}`)
+            fs.appendFileSync(this.filename, `\n${this.getDateString(date)} [${LogFileLevel[logLevel]}] ${message}`)
+        }
+
     }
 
     public debug(message: string, moduleName: string = "") {
-        if (this.level & LogFileLevel.DEBUG)
-            this.writeData(LogFileLevel.DEBUG, `${moduleName === "" ? "" : `[${moduleName}]`}${message}`);
+        this.writeData(LogFileLevel.DEBUG, message, moduleName);
     }
 
     public info(message: string, moduleName: string = "") {
-        if (this.level & LogFileLevel.INFO)
-            this.writeData(LogFileLevel.INFO, `${moduleName === "" ? "" : `[${moduleName}]`}${message}`);
+        this.writeData(LogFileLevel.INFO, message, moduleName);
     }
 
     public warn(message: string, moduleName: string = "") {
-        if (this.level & LogFileLevel.WARN)
-            this.writeData(LogFileLevel.WARN, `${moduleName === "" ? "" : `[${moduleName}]`}${message}`);
+        this.writeData(LogFileLevel.WARN, message, moduleName);
     }
 
     public error(message: string, moduleName: string = "") {
-        if (this.level & LogFileLevel.ERROR)
-            this.writeData(LogFileLevel.ERROR, `${moduleName === "" ? "" : `[${moduleName}]`}${message}`);
+        this.writeData(LogFileLevel.ERROR, message, moduleName);
     }
+
 
     public static getSingleton() {
         if (!this.singleton)
